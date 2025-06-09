@@ -1,0 +1,715 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Global Video Game Sales Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+    <link href="stylesheet.css" rel="stylesheet">
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    
+</head>
+<body>
+    <header class="dashboard-header">
+        <h1><i class="bi bi-controller me-2"></i>Global Video Game Sales Dashboard</h1>
+    </header>
+
+    <div class="container">
+        <!-- Slider Section -->
+        <div class="row justify-content-center">
+            <div class="col-md-6 col-lg-4">
+                <div class="slider-container">
+                    <svg id="year-slider" width="400" height="100"></svg>
+                </div>
+            </div>
+        </div>
+
+        <!-- Charts Section -->
+        <div class="row">
+            <!-- Bar Chart and Pie Chart Row -->
+            <div class="col-lg-8 col-md-12 mb-4">
+                <div class="chart-card">
+                    <h5 class="card-title"><i class="bi bi-bar-chart-fill me-2"></i>Sales by Genre</h5>
+                    <svg id="barchart"></svg>
+                </div>
+            </div>
+            <div class="col-lg-4 col-md-12 mb-4">
+                <div class="chart-card">
+                    <h5 class="card-title"><i class="bi bi-pie-chart-fill me-2"></i>Market Share</h5>
+                    <svg id="piechart"></svg>
+                    <button id="reset-market-btn" class="btn btn-outline-primary">Reset to Global Sales</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Line Chart Row -->
+        <div class="row">
+            <div class="col-12">
+                <div class="chart-card">
+                    <h5 class="card-title"><i class="bi bi-graph-up me-2"></i>Platform Sales by Genre</h5>
+                    <svg id="linechart"></svg>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bootstrap 5 JS and Popper.js -->
+    <script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.11.8/dist/umd/popper.min.js" integrity="sha384-I7E8VVD/ismYTF4hNIPjVp/Zjvgyol6VFh0vRjXh0JMhjY6hW+ALEwJH" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.min.js" integrity="sha384-0pBEvZvbkm6XFh0JjEnkmuGrJXVbNuzT0to5eqruptLy" crossorigin="anonymous"></script>
+
+    <script>
+        // Korišteno u kodu za dohvat CSV podataka:
+        d3.csv("vgsales.csv").then(data => {
+            
+            const processedData = data.map(d => ({
+                Year: +d.Year || NaN,
+                Genre: d.Genre,
+                Name: d.Name,
+                Platform: d.Platform,
+                Global_Sales: +d.Global_Sales || 0,
+                NA_Sales: +d.NA_Sales || 0,
+                EU_Sales: +d.EU_Sales || 0,
+                JP_Sales: +d.JP_Sales || 0,
+                Other_Sales: +d.Other_Sales || 0
+            })).filter(d => !isNaN(d.Year));
+
+            // Grupiranje po godini i žanru:
+            const nestedData = d3.group(processedData, d => d.Year, d => d.Genre);
+            const aggregatedData = [];
+            nestedData.forEach((genres, year) => {
+                genres.forEach((games, genre) => {
+                    const totalSales = d3.sum(games, d => d.Global_Sales);
+                    const topGame = games.reduce((acc, game) => 
+                        game.Global_Sales > (acc.Global_Sales || 0) ? game : acc, {});
+                    aggregatedData.push({
+                        Year: +year,
+                        Genre: genre,
+                        Global_Sales: totalSales,
+                        TopGame: topGame.Name,
+                        TopGameSales: topGame.Global_Sales,
+                        TopGamePlatform: topGame.Platform,
+                        NA_Sales: d3.sum(games, d => d.NA_Sales),
+                        EU_Sales: d3.sum(games, d => d.EU_Sales),
+                        JP_Sales: d3.sum(games, d => d.JP_Sales),
+                        Other_Sales: d3.sum(games, d => d.Other_Sales)
+                    });
+                });
+            });
+            // Grupiranje i agregiranje prodaje po tržištima:
+            const marketData = d3.rollup(
+                processedData,
+                v => ({
+                    NA_Sales: d3.sum(v, d => d.NA_Sales),
+                    EU_Sales: d3.sum(v, d => d.EU_Sales),
+                    JP_Sales: d3.sum(v, d => d.JP_Sales),
+                    Other_Sales: d3.sum(v, d => d.Other_Sales)
+                }),
+                d => d.Year
+            );
+
+            const platformData = d3.rollup(
+                processedData,
+                v => d3.sum(v, d => d.Global_Sales),
+                d => d.Year,
+                d => d.Platform,
+                d => d.Genre
+            );
+
+            const topGameData = d3.rollup(
+                processedData,
+                v => {
+                    const topGame = v.reduce((acc, game) => 
+                        game.Global_Sales > (acc.Global_Sales || 0) ? game : acc, {});
+                    return { Name: topGame.Name, Sales: topGame.Global_Sales };
+                },
+                d => d.Year,
+                d => d.Platform,
+                d => d.Genre
+            );
+
+            const years = [...new Set(processedData.map(d => d.Year))].sort()
+                .filter(year => year !== 2017 && year !== 2020);
+            console.log("Available years:", years);
+            const genres = [...new Set(aggregatedData.map(d => d.Genre))].sort();
+            const markets = ["NA_Sales", "EU_Sales", "JP_Sales", "Other_Sales"];
+            const platforms = [...new Set(processedData.map(d => d.Platform))];
+
+            
+            const barMargin = { top: 20, right: 30, bottom: 100, left: 60 };
+            const barWidth = 800 - barMargin.left - barMargin.right;
+            const barHeight = 600 - barMargin.top - barMargin.bottom;
+
+            const barSvg = d3.select("#barchart")
+                .attr("width", barWidth + barMargin.left + barMargin.right)
+                .attr("height", barHeight + barMargin.top + barMargin.bottom)
+                .append("g")
+                .attr("transform", `translate(${barMargin.left},${barMargin.top})`);
+
+            
+            const pieWidth = 300;
+            const pieHeight = 300;
+            const radius = Math.min(pieWidth, pieHeight) / 2;
+            const pieMargin = { top: 20, right: 20, bottom: 100, left: 20 };
+
+            const pieSvg = d3.select("#piechart")
+                .attr("width", pieWidth + pieMargin.left + pieMargin.right)
+                .attr("height", pieHeight + pieMargin.top + pieMargin.bottom)
+                .append("g")
+                .attr("transform", `translate(${(pieWidth + pieMargin.left + pieMargin.right) / 2},${(pieHeight + pieMargin.top) / 2})`);
+
+            
+            const lineMargin = { top: 40, right: 200, bottom: 100, left: 80 };
+            const lineWidth = 1200 - lineMargin.left - lineMargin.right;
+            const lineHeight = 600 - lineMargin.top - lineMargin.bottom;
+
+            const lineSvg = d3.select("#linechart")
+                .attr("width", lineWidth + lineMargin.left + lineMargin.right)
+                .attr("height", lineHeight + lineMargin.top + lineMargin.bottom)
+                .append("g")
+                .attr("transform", `translate(${lineMargin.left},${lineMargin.top})`);
+
+            
+            const sliderSvg = d3.select("#year-slider")
+                .append("g")
+                .attr("class", "slider")
+                .attr("transform", `translate(50, 50)`);
+
+            
+            const defs = sliderSvg.append("defs");
+            const gradient = defs.append("linearGradient")
+                .attr("id", "slider-gradient")
+                .attr("x1", "0%")
+                .attr("y1", "0%")
+                .attr("x2", "100%")
+                .attr("y2", "0%");
+            gradient.append("stop")
+                .attr("offset", "0%")
+                .attr("stop-color", "#e6e6fa");
+            gradient.append("stop")
+                .attr("offset", "100%")
+                .attr("stop-color", "#f0f8ff");
+
+            
+            const filter = defs.append("filter").attr("id", "handle-glow");
+            filter.append("feGaussianBlur")
+                .attr("stdDeviation", "2")
+                .attr("result", "coloredBlur");
+            const feMerge = filter.append("feMerge");
+            feMerge.append("feMergeNode").attr("in", "coloredBlur");
+            feMerge.append("feMergeNode").attr("in", "SourceGraphic");
+
+            let selectedYear = years.includes(2006) ? 2006 : years[0] || 2000; 
+            let selectedMarket = null; 
+            console.log("Initial selectedYear:", selectedYear);
+
+            
+            const sliderWidth = 300;
+            const xSlider = d3.scaleLinear()
+                .domain([d3.min(years) || 2000, d3.max(years) || 2000])
+                .range([0, sliderWidth])
+                .clamp(true);
+
+            
+            sliderSvg.append("rect")
+                .attr("class", "slider-track")
+                .attr("x", 0)
+                .attr("y", -5)
+                .attr("width", sliderWidth)
+                .attr("height", 10)
+                .attr("rx", 5);
+
+            
+            const handle = sliderSvg.append("circle")
+                .attr('class', 'slider-handle')
+                .attr("cx", xSlider(selectedYear))
+                .attr("cy", 0)
+                .attr("r", 10);
+
+            
+            const label = sliderSvg.append("text")
+                .attr("class", "slider-label")
+                .attr("x", xSlider(selectedYear))
+                .attr("y", -20)
+                .attr("text-anchor", "middle")
+                .text(selectedYear);
+
+            
+            sliderSvg.append("text")
+                .attr("x", 0)
+                .attr("y", 20)
+                .attr("text-anchor", "start")
+                .text(d3.min(years) || 2000);
+            sliderSvg.append("text")
+                .attr("x", sliderWidth)
+                .attr("y", 20)
+                .attr("text-anchor", "end")
+                .text(d3.max(years) || 2000);
+            // Primjena drag funkcionalnosti na slider:    
+            handle.call(d3.drag()
+                .on("start", () => handle.style("cursor", "grabbing"))
+                .on("drag", function(event) {
+                    const newYear = Math.round(xSlider.invert(event.x));
+                    if (years.includes(newYear) && newYear !== selectedYear) {
+                        selectedYear = newYear;
+                        handle.attr("cx", xSlider(selectedYear));
+                        label.attr("x", xSlider(selectedYear)).text(selectedYear);
+                        console.log("Slider moved to year:", selectedYear);
+                        updateCharts(selectedYear);
+                    }
+                })
+                .on("end", () => handle.style("cursor", "grab")));
+
+            sliderSvg.select(".slider-track")
+                .on("click", function(event) {
+                    const newYear = Math.round(xSlider.invert(d3.pointer(event, this)[0]));
+                    if (years.includes(newYear) && newYear !== selectedYear) {
+                        selectedYear = newYear;
+                        handle.transition().duration(300).attr("cx", xSlider(selectedYear));
+                        label.transition().duration(300).attr("x", xSlider(selectedYear)).text(selectedYear);
+                        console.log("Track clicked, new year:", selectedYear);
+                        updateCharts(selectedYear);
+                    }
+                });
+
+            
+            const x = d3.scaleBand()
+                .domain(genres)
+                .range([0, barWidth])
+                .padding(0.1);
+
+            const y = d3.scaleLinear()
+                .range([barHeight, 0]);
+
+            const barColor = d3.scaleOrdinal()
+                .domain(genres)
+                .range(d3.schemeCategory10);
+
+            
+            const xAxis = d3.axisBottom(x);
+            const yAxis = d3.axisLeft(y).tickFormat(d => `${d}M`);
+
+            barSvg.append("g")
+                .attr("class", "x-axis")
+                .attr("transform", `translate(0,${barHeight})`)
+                .call(xAxis)
+                .selectAll("text")
+                .style("text-anchor", "end")
+                .attr("dx", "-.8em")
+                .attr("dy", ".15em")
+                .attr("transform", "rotate(-45)");
+
+            barSvg.append("g")
+                .attr("class", "y-axis")
+                .call(yAxis)
+                .append("text")
+                .attr("fill", "#000")
+                .attr("transform", "rotate(-90)")
+                .attr("y", 6)
+                .attr("dy", "0.71em")
+                .attr("text-anchor", "end")
+                .text("Sales (Millions)");
+
+            
+            const pie = d3.pie()
+                .value(d => d.value)
+                .sort(null);
+
+            const arc = d3.arc()
+                .innerRadius(0)
+                .outerRadius(radius - 10);
+
+            const pieColor = d3.scaleOrdinal()
+                .domain(markets)
+                .range(d3.schemeSet2);
+
+           
+            const pieLegend = pieSvg.append("g")
+                .attr("class", "legend")
+                .attr("transform", `translate(${-pieWidth/2},${radius + 20})`);
+
+            markets.forEach((market, i) => {
+                const legendRow = pieLegend.append("g")
+                    .attr("transform", `translate(0, ${i * 20})`);
+                legendRow.append("rect")
+                    .attr("x", 0)
+                    .attr("y", 0)
+                    .attr("width", 18)
+                    .attr("height", 18)
+                    .attr("fill", pieColor(market));
+                legendRow.append("text")
+                    .attr("x", 24)
+                    .attr("y", 9)
+                    .attr("dy", ".35em")
+                    .text(market.replace("_Sales", ""));
+            });
+
+            
+            const xLine = d3.scalePoint()
+                .domain(genres)
+                .range([0, lineWidth]);
+
+            const yLine = d3.scaleLinear()
+                .range([lineHeight, 0]);
+
+            const lineColor = d3.scaleOrdinal()
+                .domain(platforms)
+                .range(d3.schemeTableau10);
+
+            const line = d3.line()
+                .x(d => xLine(d.genre))
+                .y(d => yLine(d.sales));
+
+            
+            const xLineAxis = d3.axisBottom(xLine);
+            const yLineAxis = d3.axisLeft(yLine).tickFormat(d => `${d}M`);
+
+            lineSvg.append("g")
+                .attr("class", "x-axis")
+                .attr("transform", `translate(0,${lineHeight})`)
+                .call(xLineAxis)
+                .selectAll("text")
+                .style("text-anchor", "end")
+                .attr("dx", "-.8em")
+                .attr("dy", ".15em")
+                .attr("transform", "rotate(-45)");
+
+            lineSvg.append("g")
+                .attr("class", "y-axis")
+                .call(yLineAxis)
+                .append("text")
+                .attr("fill", "#000")
+                .attr("transform", "rotate(-90)")
+                .attr("y", 6)
+                .attr("dy", "0.71em")
+                .attr("text-anchor", "end")
+                .text("Global Sales (Millions)");
+
+            
+            const lineLegend = lineSvg.append("g")
+                .attr("class", "line-legend")
+                .attr("transform", `translate(${lineWidth + 30},0)`);
+
+            
+            const tooltip = d3.select("body").append("div")
+                .attr("class", "tooltip")
+                .style("opacity", 0);
+
+            
+            let selectedPoint = null;
+
+            
+            let selectedPlatforms = [];
+
+            
+            d3.select("#reset-market-btn").on("click", () => {
+                selectedMarket = null;
+                updateCharts(selectedYear);
+            });
+
+            
+            function updateCharts(selectedYear) {
+                d3.select("#reset-market-btn")
+                    .style("display", selectedMarket ? "block" : "none");
+
+                
+                const yearData = aggregatedData.filter(d => d.Year === selectedYear);
+                let filteredData = yearData;
+
+                if (selectedMarket) {
+                    filteredData = yearData.map(d => ({
+                        ...d,
+                        Global_Sales: d[selectedMarket]
+                    }));
+                }
+
+                y.domain([0, d3.max(filteredData, d => d.Global_Sales) || 1]).nice();
+
+                barSvg.select(".y-axis")
+                    .transition()
+                    .duration(700)
+                    .call(yAxis);
+
+                const bars = barSvg.selectAll(".bar")
+                    .data(filteredData, d => d.Genre);
+
+                bars.exit()
+                    .transition()
+                    .duration(200)
+                    .attr("y", barHeight)
+                    .attr("height", 0)
+                    .remove();
+
+                bars.enter()
+                    .append("rect")
+                    .attr("class", "bar")
+                    .attr("x", d => x(d.Genre))
+                    .attr("y", barHeight)
+                    .attr("width", x.bandwidth())
+                    .attr("height", 0)
+                    .attr("fill", d => barColor(d.Genre))
+                    .merge(bars)
+                    .transition()
+                    .duration(700)
+                    .attr("x", d => x(d.Genre))
+                    .attr("y", d => y(d.Global_Sales))
+                    .attr("width", x.bandwidth())
+                    .attr("height", d => barHeight - y(d.Global_Sales));
+
+                barSvg.selectAll(".bar")
+                    .on("mouseover", (event, d) => {
+                        const salesKey = selectedMarket || "Global_Sales";
+                        const topGameSales = selectedMarket ? d[salesKey] : d.TopGameSales;
+                        tooltip.transition().duration(200).style("opacity", 0.9);
+                        tooltip.html(`
+                            <strong>Genre:</strong> ${d.Genre}<br>
+                            <strong>Total ${selectedMarket ? selectedMarket.replace("_Sales", "") : "Global"} Sales:</strong> ${d.Global_Sales.toFixed(2)}M<br>
+                            <strong>Top Game:</strong> ${d.TopGame || 'N/A'}<br>
+                            <strong>Top Game ${selectedMarket ? selectedMarket.replace("_Sales", "") : "Global"} Sales:</strong> ${topGameSales ? topGameSales.toFixed(2) : '0.00'}M
+                        `)
+                            .style("left", (event.pageX + 10) + "px")
+                            .style("top", (event.pageY - 28) + "px");
+                    })
+                    .on("mouseout", () => {
+                        tooltip.transition().duration(500).style("opacity", 0);
+                    });
+
+                
+                const yearMarketData = marketData.get(selectedYear) || {
+                    NA_Sales: 0,
+                    EU_Sales: 0,
+                    JP_Sales: 0,
+                    Other_Sales: 0
+                };
+
+                const totalSales = markets.reduce((sum, market) => sum + yearMarketData[market], 0);
+
+                const pieData = markets.map(market => ({
+                    market,
+                    value: yearMarketData[market]
+                }));
+
+                const arcs = pieSvg.selectAll(".arc")
+                    .data(pie(pieData), d => d.data.market);
+
+                arcs.exit()
+                    .transition()
+                    .duration(500)
+                    .remove();
+
+                const arcGroup = arcs.enter()
+                    .append("g")
+                    .attr("class", "arc");
+
+                arcGroup.append("path")
+                    .attr("d", arc)
+                    .attr("fill", d => pieColor(d.data.market))
+                    .merge(arcs.select("path"))
+                    .transition()
+                    .duration(800)
+                    // Primjer attrTween: glatka tranzicija boje i oblika:
+                    .attrTween("fill", function(d) {
+                        const interpolate = d3.interpolate(this.getAttribute("fill"), pieColor(d.data.market));
+                        return t => interpolate(t);
+                    })
+                    .attrTween("d", function(d) {
+                        // d3.interpolate vraća funkciju koja vraća vrijednost ovisno o t (0–1):
+                        const i = d3.interpolate({ startAngle: 0, endAngle: 0 }, d);
+                        return t => arc(i(t));
+                    });
+
+                arcs.select("path")
+                    .on("click", (event, d) => {
+                        selectedMarket = d.data.market; 
+                        updateCharts(selectedYear);
+                    })
+                    .on("mouseover", (event, d) => {
+                        const percentage = totalSales > 0 ? (d.data.value / totalSales * 100).toFixed(1) : 0;
+                        tooltip.transition().duration(200).style("opacity", 0.9);
+                        tooltip.html(`
+                            <strong>Market:</strong> ${d.data.market.replace("_Sales", "")}<br>
+                            <strong>Sales:</strong> ${d.data.value.toFixed(2)}M<br>
+                            <strong>Percentage:</strong> ${percentage}%
+                        `)
+                            .style("left", (event.pageX + 10) + "px")
+                            .style("top", (event.pageY - 28) + "px");
+                    })
+                    .on("mouseout", () => {
+                        tooltip.transition().duration(500).style("opacity", 0);
+                    });
+               
+
+                const availablePlatforms = platforms
+                    .map(platform => {
+                        const genreData = genres.map(genre => ({
+                            genre,
+                            sales: platformData.get(selectedYear)?.get(platform)?.get(genre) || 0
+                        }));
+                        return { platform, data: genreData, hasData: genreData.some(d => d.sales > 0) };
+                    })
+                    .filter(p => p.hasData)
+                    .map(p => p.platform);
+
+                selectedPlatforms = selectedPlatforms.length === 0 ? availablePlatforms.slice() : selectedPlatforms;
+
+                
+                const yearPlatformData = availablePlatforms
+                    .map(platform => {
+                        const genreData = genres.map(genre => ({
+                            genre,
+                            sales: platformData.get(selectedYear)?.get(platform)?.get(genre) || 0
+                        }));
+                        
+                        return { platform, data: genreData };
+                    })
+                    .sort((a, b) => d3.max(b.data, d => d.sales) - d3.max(a.data, d => d.sales));
+
+                yLine.domain([0, d3.max(yearPlatformData, p => d3.max(p.data, d => d.sales)) || 1]).nice();
+
+                lineSvg.select(".y-axis")
+                    .transition()
+                    .duration(1000)
+                    .call(yLineAxis);
+
+                lineSvg.select(".x-axis")
+                    .call(xLineAxis)
+                    .selectAll("text")
+                    .style("text-anchor", "end")
+                    .attr("dx", "-.8em")
+                    .attr("dy", ".15em")
+                    .attr("transform", "rotate(-45)");
+
+                
+                lineSvg.select(".line-legend").selectAll("*").remove();
+                const legendRows = lineSvg.select(".line-legend")
+                    .selectAll("g")
+                    .data(availablePlatforms.map(platform => ({ platform })), d => d.platform);
+
+                const legendEnter = legendRows.enter()
+                    .append("g")
+                    .attr("class", d => `legend-row ${selectedPlatforms.includes(d.platform) ? 'selected' : ''}`)
+                    .attr("transform", (d, i) => `translate(0,${i * 25})`);
+
+                legendEnter.append("rect")
+                    .attr("x", 0)
+                    .attr("y", -2)
+                    .attr("width", 18)
+                    .attr("height", 4)
+                    .attr("fill", d => lineColor(d.platform));
+
+                legendEnter.append("text")
+                    .attr("x", 24)
+                    .attr("y", 0)
+                    .attr("dy", ".35em")
+                    .text(d => d.platform);
+
+                
+                legendRows.merge(legendEnter)
+                    .attr("class", d => `legend-row ${selectedPlatforms.includes(d.platform) ? 'selected' : ''}`);
+
+                
+                lineSvg.selectAll(".line").remove();
+                lineSvg.selectAll(".line-point").remove();
+
+                
+                const lines = lineSvg.selectAll(".line")
+                    .data(yearPlatformData.filter(p => selectedPlatforms.includes(p.platform)), d => d.platform);
+
+                lines.exit().remove();
+                lines.enter()
+                    .append("path")
+                    .attr("class", "line")
+                    .attr("d", d => line(d.data))
+                    .attr("stroke", d => lineColor(d.platform))
+                    .each(function() {
+                        const totalLength = this.getTotalLength();
+                        d3.select(this)
+                            .attr("stroke-dasharray", totalLength)
+                            .attr("stroke-dashoffset",totalLength);
+                    })
+                    .merge(lines)
+                    .transition()
+                    .duration(1000)
+                    .attr("d", d => line(d.data))
+                    .attr("stroke", d => lineColor(d.platform))
+                    .attr("stroke-dashoffset", 0);
+
+                
+                const points = lineSvg.selectAll(".line-point")
+                    .data(yearPlatformData.flatMap(p => p.data.map(d => ({ ...d, platform: p.platform })))
+                        .filter(d => selectedPlatforms.includes(d.platform)), d => d.platform + d.genre);
+
+                points.exit().remove();
+                points.enter()
+                    .append("circle")
+                    .attr("class", "line-point")
+                    .attr("r", 6)
+                    .attr("fill", d => lineColor(d.platform))
+                    .attr("cx", d => xLine(d.genre))
+                    .attr("cy", d => yLine(d.sales))
+                    .attr("transform", "scale(0)")
+                    .merge(points)
+                    .transition()
+                    .duration(500)
+                    .attr("cx", d => xLine(d.genre))
+                    .attr("cy", d => yLine(d.sales))
+                    .attr("transform", "scale(1)");
+
+                function handleClick(event, d) {
+                    const platform = d.platform;
+                    if (selectedPlatforms.includes(platform)) {
+                        selectedPlatforms = selectedPlatforms.filter(p => p !== platform); 
+                    } else {
+                        selectedPlatforms.push(platform); 
+                    }
+                    console.log("Selected platforms:", selectedPlatforms);
+                    updateCharts(selectedYear);
+                }
+
+                lineSvg.selectAll(".line")
+                    .on("click", handleClick);
+                lineSvg.selectAll(".line-legend g")
+                    .on("click", handleClick);
+
+                lineSvg.selectAll(".line-point")
+                    .on("click", (event, d) => {
+                        const isSamePoint = selectedPoint && 
+                            selectedPoint.platform === d.platform && 
+                            selectedPoint.genre === d.genre;
+
+                        if (isSamePoint) {
+                            tooltip.transition().duration(200).style("opacity", 0);
+                            selectedPoint = null;
+                        } else {
+                            const topGame = topGameData.get(selectedYear)?.get(d.platform)?.get(d.genre) || { Name: 'N/A', Sales: 0 };
+                            tooltip.transition().duration(200).style("opacity", 0.9);
+                            tooltip.html(`
+                                <strong>Platform:</strong> ${d.platform}<br>
+                                <strong>Genre:</strong> ${d.genre}<br>
+                                <strong>Sales:</strong> ${d.sales.toFixed(2)}M<br>
+                                <strong>Year:</strong> ${selectedYear}<br>
+                                <strong>Top Game:</strong> ${topGame.Name}<br>
+                                <strong>Top Game Sales:</strong> ${topGame.Sales.toFixed(2)}M
+                            `)
+                                .style("left", (event.pageX + 10) + "px")
+                                .style("top", (event.pageY - 28) + "px");
+                            selectedPoint = d;
+                        }
+                    });
+
+                lineSvg.on("click", function(event) {
+                    if (event.target.tagName !== "circle" && !event.target.closest(".line-legend")) {
+                        tooltip.transition().duration(200).style("opacity", 0);
+                        selectedPoint = null;
+                    }
+                });
+            }
+
+            
+            updateCharts(selectedYear);
+        }).catch(error => {
+            console.error("Error loading CSV file:", error);
+        });
+    </script>
+</body>
+</html>
